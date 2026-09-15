@@ -192,6 +192,20 @@ export function replayTrail(steps: readonly DrillStep[]): Pose {
 }
 
 /**
+ * 由轨迹的动作序列重建可信轨迹：动作序列保持不变，
+ * 每一步的姿态记录全部以从起点的确定性重放为准。
+ * 轨迹记录被污染时，据此恢复“最后可信画面”。
+ */
+export function trustedTrailOf(trail: DrillTrail): DrillTrail {
+  let pose = START_POSE;
+  const steps = trail.steps.map((step) => {
+    pose = applyAction(pose, step.action);
+    return { action: step.action, pose };
+  });
+  return { steps };
+}
+
+/**
  * 箭头的累计显示角度（从北起顺时针度数），供界面连续动画使用：
  * rotate 永远顺时针前进 90°，flip 沿进纸轴镜像（角度取负）。
  * 与 viewOf 的箭头方位在模 360 意义下一致，但不归一到 0–270，
@@ -210,33 +224,39 @@ export type AppendFailure = 'trail-full' | 'invalid-trail';
 
 export type AppendResult =
   | { readonly ok: true; readonly trail: DrillTrail }
-  | { readonly ok: false; readonly reason: AppendFailure; readonly trail: DrillTrail };
+  | {
+      readonly ok: false;
+      readonly reason: AppendFailure;
+      /** 拒绝时返回矫正后的可信轨迹：画面应停在最后可信状态，而非污染朝向。 */
+      readonly trail: DrillTrail;
+    };
 
 /**
  * 向轨迹追加一个现场动作。
  *
  * 每一步都按不可交换的空间变换增量合成；同时把轨迹的动作序列从起点
  * 逐步确定性重放，并核对既有每一步与新步的增量姿态记录。任何一处
- * 不一致（例如轨迹记录被污染）都拒绝本次动作，原轨迹原样保留
- * （最后可信画面）。轨迹达到 24 步后不再接收动作。
+ * 不一致（例如轨迹记录被污染）都拒绝本次动作，并返回矫正后的可信
+ * 轨迹（动作序列不变、姿态以重放为准），使画面停在最后可信状态。
+ * 轨迹达到 24 步后不再接收动作。
  */
 export function appendAction(trail: DrillTrail, action: DrillAction): AppendResult {
   if (trail.steps.length >= MAX_TRAIL_STEPS) {
-    return { ok: false, reason: 'trail-full', trail };
+    return { ok: false, reason: 'trail-full', trail: trustedTrailOf(trail) };
   }
   // 确定性重放：只由动作序列从起点重算，逐步核对轨迹记录的姿态。
   let replayed = START_POSE;
   for (const step of trail.steps) {
     replayed = applyAction(replayed, step.action);
     if (!samePose(replayed, step.pose)) {
-      return { ok: false, reason: 'invalid-trail', trail };
+      return { ok: false, reason: 'invalid-trail', trail: trustedTrailOf(trail) };
     }
   }
   // 增量合成新步，并与重放结果比对。
   const incremental = applyAction(currentPose(trail), action);
   const replayedNext = applyAction(replayed, action);
   if (!samePose(replayedNext, incremental)) {
-    return { ok: false, reason: 'invalid-trail', trail };
+    return { ok: false, reason: 'invalid-trail', trail: trustedTrailOf(trail) };
   }
   return {
     ok: true,

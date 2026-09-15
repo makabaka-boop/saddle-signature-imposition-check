@@ -56,12 +56,14 @@ export function PaperDrill() {
 
   const act = (action: DrillAction) => {
     const result = appendAction(trail, action);
+    // 无论成败都采用结果轨迹：被拒绝时它是矫正后的可信轨迹，
+    // 画面因此停在重放确定的最后可信状态，而不是污染朝向。
+    setTrail(result.trail);
     if (result.ok) {
-      setTrail(result.trail);
+      setInvalid(false);
       return;
     }
     if (result.reason === 'invalid-trail') {
-      // 拒绝本次动作，保留最后可信画面（trail 不变）。
       setInvalid(true);
     } else {
       setLimitHit(true);

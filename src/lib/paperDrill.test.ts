@@ -14,6 +14,7 @@ import {
   replayTrail,
   rotate,
   samePose,
+  trustedTrailOf,
   viewOf,
   type Compass,
   type DrillAction,
@@ -215,11 +216,11 @@ describe('轨迹与确定性重放', () => {  it('正常追加：增量姿态与
     expect(samePose(replayActions(sequence), replayActions([...sequence]))).toBe(true);
   });
 
-  it('轨迹记录被污染时拒绝本次动作，保留最后可信轨迹', () => {
+  it('轨迹记录被污染时拒绝本次动作，画面停在最后可信状态', () => {
     const first = appendAction(EMPTY_TRAIL, 'rotate');
     if (!first.ok) throw new Error('应当追加成功');
 
-    // 污染：动作是 rotate，姿态记录却被改回起点
+    // 污染：动作是 rotate（可信朝向应为东），姿态记录却被改回起点（朝北）
     const tampered: DrillTrail = {
       steps: [{ action: 'rotate', pose: START_POSE }],
     };
@@ -227,12 +228,20 @@ describe('轨迹与确定性重放', () => {  it('正常追加：增量姿态与
     expect(result.ok).toBe(false);
     if (result.ok) throw new Error('应当被拒绝');
     expect(result.reason).toBe('invalid-trail');
-    // 原轨迹原样保留（最后可信画面），不接收新动作
-    expect(result.trail).toBe(tampered);
+
+    // 不接收新动作，但返回的是矫正后的可信轨迹，而非污染轨迹本身
+    expect(result.trail).not.toBe(tampered);
     expect(result.trail.steps).toHaveLength(1);
+    expect(result.trail.steps.map((s) => s.action)).toEqual(['rotate']);
+
+    // 关键回归断言：画面朝向 = 重放确定的可信朝向（东），不是污染朝向（北）
+    const trusted = currentPose(result.trail);
+    expect(samePose(trusted, replayActions(['rotate']))).toBe(true);
+    expect(viewOf(trusted).arrow).toBe('E');
+    expect(samePose(trusted, START_POSE)).toBe(false);
   });
 
-  it('多步轨迹中任意一步被污染都会被重放检出', () => {
+  it('多步轨迹中任意一步被污染都会被重放检出，且轨迹被矫正为可信', () => {
     let trail = EMPTY_TRAIL;
     for (const action of ['rotate', 'flip', 'rotate'] as const) {
       const result = appendAction(trail, action);
@@ -249,7 +258,44 @@ describe('轨迹与确定性重放', () => {  it('正常追加：增量姿态与
     expect(result.ok).toBe(false);
     if (result.ok) throw new Error('应当被拒绝');
     expect(result.reason).toBe('invalid-trail');
-    expect(result.trail).toBe(polluted);
+
+    // 返回可信轨迹：动作序列不变，每一步姿态都与确定性重放一致
+    expect(result.trail).not.toBe(polluted);
+    expect(result.trail.steps.map((s) => s.action)).toEqual([
+      'rotate',
+      'flip',
+      'rotate',
+    ]);
+    const actions = polluted.steps.map((s) => s.action);
+    let replayed = START_POSE;
+    for (const [i, step] of result.trail.steps.entries()) {
+      replayed = applyAction(replayed, actions[i]);
+      expect(samePose(step.pose, replayed)).toBe(true);
+    }
+    // 画面停在最后可信状态（重放姿态），不是被污染的第 3 步记录
+    expect(samePose(currentPose(result.trail), replayActions(actions))).toBe(true);
+  });
+
+  it('trustedTrailOf 对自洽轨迹是恒等重建，对污染轨迹矫正全部姿态记录', () => {
+    let trail = EMPTY_TRAIL;
+    for (const action of ['flip', 'rotate', 'rotate'] as const) {
+      const result = appendAction(trail, action);
+      if (!result.ok) throw new Error('应当追加成功');
+      trail = result.trail;
+    }
+    // 自洽轨迹：矫正后逐步等价
+    const trusted = trustedTrailOf(trail);
+    expect(trusted).toEqual(trail);
+
+    // 污染轨迹：姿态记录全部被重放值替换，动作序列不变
+    const polluted: DrillTrail = {
+      steps: trail.steps.map((step) => ({ ...step, pose: START_POSE })),
+    };
+    const repaired = trustedTrailOf(polluted);
+    expect(repaired.steps.map((s) => s.action)).toEqual(
+      trail.steps.map((s) => s.action),
+    );
+    expect(repaired).toEqual(trail);
   });
 
   it('轨迹达到 24 步后不再接收动作', () => {
@@ -268,7 +314,9 @@ describe('轨迹与确定性重放', () => {  it('正常追加：增量姿态与
     expect(rejected.ok).toBe(false);
     if (rejected.ok) throw new Error('应当被拒绝');
     expect(rejected.reason).toBe('trail-full');
-    expect(rejected.trail).toBe(trail);
+    // 自洽的满轨迹：返回的可信轨迹与原轨迹逐步等价，画面不变
+    expect(rejected.trail).toEqual(trail);
     expect(rejected.trail.steps).toHaveLength(MAX_TRAIL_STEPS);
+    expect(samePose(currentPose(rejected.trail), START_POSE)).toBe(true);
   });
 });
