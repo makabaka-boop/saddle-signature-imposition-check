@@ -1,0 +1,294 @@
+:root {
+  --ink: #1d2433;
+  --muted: #5b6577;
+  --paper: #f6f3ec;
+  --card: #ffffff;
+  --line: #d8d2c4;
+  --accent: #8a4b2f;
+  --accent-soft: #f3e5dc;
+  --front: #1f5f5b;
+  --back: #7a3b2e;
+  --error-bg: #fdecea;
+  --error-line: #e0b4ae;
+  --error-ink: #8c2f23;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family:
+    'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', system-ui,
+    sans-serif;
+  color: var(--ink);
+  background: var(--paper);
+  line-height: 1.55;
+}
+
+.page {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 32px 24px 56px;
+}
+
+.page-header h1 {
+  margin: 0 0 4px;
+  font-size: 28px;
+  letter-spacing: 2px;
+}
+
+.subtitle {
+  margin: 0 0 24px;
+  color: var(--muted);
+}
+
+.input-panel {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 16px 20px;
+}
+
+.input-panel label {
+  font-weight: 700;
+}
+
+#pages-input {
+  width: 140px;
+  padding: 8px 12px;
+  font-size: 18px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fff;
+}
+
+#pages-input:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.input-rule {
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.notice {
+  margin-top: 20px;
+  padding: 14px 18px;
+  border-radius: 8px;
+  font-size: 15px;
+}
+
+.notice-empty {
+  background: #eef2f4;
+  border: 1px dashed var(--line);
+  color: var(--muted);
+}
+
+.notice-error {
+  background: var(--error-bg);
+  border: 1px solid var(--error-line);
+  color: var(--error-ink);
+}
+
+.summary {
+  display: flex;
+  gap: 20px;
+  align-items: baseline;
+  flex-wrap: wrap;
+  margin: 22px 0 14px;
+  padding: 12px 18px;
+  background: var(--accent-soft);
+  border-left: 4px solid var(--accent);
+  border-radius: 6px;
+}
+
+.summary strong {
+  font-size: 20px;
+}
+
+.summary-note {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.sheet-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 14px;
+}
+
+.sheet-card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 16px 20px 18px;
+}
+
+.sheet-card--front {
+  border-top: 4px solid var(--front);
+}
+
+.sheet-card--back {
+  border-top: 4px solid var(--back);
+}
+
+.sheet-card__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.sheet-card__header h2 {
+  margin: 0;
+  font-size: 17px;
+}
+
+.sheet-card__index {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 400;
+  margin-left: 6px;
+}
+
+.flip-controls {
+  display: inline-flex;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.flip-controls button {
+  padding: 6px 16px;
+  border: 0;
+  background: #f1ede4;
+  color: var(--ink);
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.flip-controls button + button {
+  border-left: 1px solid var(--line);
+}
+
+.flip-controls button[aria-pressed='true'] {
+  background: var(--accent);
+  color: #fff;
+  font-weight: 700;
+}
+
+.flip-controls button:disabled {
+  cursor: default;
+}
+
+.sheet-card__sidenote {
+  margin: 8px 0 12px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.sheet-spread {
+  display: grid;
+  grid-template-columns: 1fr 56px 1fr;
+  align-items: stretch;
+  border: 1px dashed #b9b09e;
+  border-radius: 8px;
+  overflow: hidden;
+  min-height: 132px;
+}
+
+.page-slot {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 14px 10px;
+  background:
+    repeating-linear-gradient(
+      0deg,
+      #fbf9f4,
+      #fbf9f4 18px,
+      #f3efe5 18px,
+      #f3efe5 19px
+    );
+}
+
+.page-slot--left {
+  border-right: 0;
+}
+
+.page-slot--right {
+  border-left: 0;
+}
+
+.page-slot__tag {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.page-slot__number {
+  font-size: 40px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.sheet-card--front .page-slot__number {
+  color: var(--front);
+}
+
+.sheet-card--back .page-slot__number {
+  color: var(--back);
+}
+
+.fold-line {
+  position: relative;
+  background: #e7e1d3;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.fold-line::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  border-left: 2px dashed #9b917c;
+}
+
+.fold-line span {
+  writing-mode: vertical-rl;
+  font-size: 11px;
+  color: #7d7462;
+  letter-spacing: 2px;
+  z-index: 1;
+}
+
+.sheet-card__hint {
+  margin: 12px 0 0;
+  font-size: 13px;
+  color: var(--muted);
+  background: #faf7f0;
+  border-radius: 6px;
+  padding: 8px 12px;
+}
+
+.page-footer {
+  margin-top: 36px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 13px;
+}

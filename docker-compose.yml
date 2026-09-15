@@ -1,0 +1,25 @@
+services:
+  # 仅运行静态 Web：容器内固定 8080，宿主机端口可用 WEB_PORT 覆盖。
+  #   WEB_PORT=9000 docker compose up --build
+  web:
+    build:
+      context: .
+      target: web
+    image: saddle-stitch-checker-web
+    ports:
+      - "${WEB_PORT:-8080}:8080"
+    restart: unless-stopped
+
+  # 一次性验收服务：类型检查 + Vite 构建 + Vitest 单测 + Playwright e2e，
+  # 全部通过后容器退出 0；不常驻、不对外开端口。
+  #   docker compose --profile verify run --rm verify
+  verify:
+    profiles: ["verify"]
+    build:
+      context: .
+      target: verify
+    image: saddle-stitch-checker-verify
+    environment:
+      # 验收阶段 Playwright 自带 webServer 起 vite preview，无需 E2E_BASE_URL。
+      CI: "1"
+    command: ["npm", "run", "verify"]
