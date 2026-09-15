@@ -292,3 +292,241 @@ body {
   color: var(--muted);
   font-size: 13px;
 }
+
+/* ---- 走纸方向演练区 ---- */
+
+.drill {
+  margin-top: 28px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 18px 20px 20px;
+}
+
+.drill__header h2 {
+  margin: 0 0 6px;
+  font-size: 17px;
+}
+
+.drill__intro {
+  margin: 0 0 16px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.drill__stage {
+  position: relative;
+  width: 240px;
+  height: 240px;
+  margin: 0 auto;
+}
+
+.drill__compass {
+  position: absolute;
+  inset: 0;
+  font-size: 12px;
+  color: var(--muted);
+  pointer-events: none;
+}
+
+.drill__compass span {
+  position: absolute;
+}
+
+.drill__compass-n {
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.drill__compass-s {
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.drill__compass-w {
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+.drill__compass-e {
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+.drill-sheet {
+  position: absolute;
+  inset: 34px;
+  border: 2px solid var(--line);
+  border-radius: 8px;
+  background:
+    repeating-linear-gradient(
+      0deg,
+      #fbf9f4,
+      #fbf9f4 18px,
+      #f3efe5 18px,
+      #f3efe5 19px
+    );
+  transition: border-color 0.15s ease;
+}
+
+.drill-sheet--front {
+  border-color: var(--front);
+  box-shadow: inset 0 0 0 3px var(--accent-soft);
+}
+
+.drill-sheet--back {
+  border-color: var(--back);
+  box-shadow: inset 0 0 0 3px var(--error-bg);
+}
+
+.corner-slot {
+  position: absolute;
+  width: 34px;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.corner-slot--NW {
+  top: 4px;
+  left: 4px;
+}
+
+.corner-slot--NE {
+  top: 4px;
+  right: 4px;
+}
+
+.corner-slot--SE {
+  bottom: 4px;
+  right: 4px;
+}
+
+.corner-slot--SW {
+  bottom: 4px;
+  left: 4px;
+}
+
+.corner-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  color: #fff;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.corner-mark--A {
+  background: #b03a2e;
+}
+
+.corner-mark--B {
+  background: #2471a3;
+}
+
+.corner-mark--C {
+  background: #1e8449;
+}
+
+.corner-mark--D {
+  background: #ca6f1e;
+}
+
+.drill-sheet__arrow {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  margin: -28px 0 0 -20px;
+  width: 40px;
+  height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 44px;
+  line-height: 1;
+  color: var(--ink);
+  transition: transform 0.15s ease;
+}
+
+.drill-sheet--front .drill-sheet__arrow {
+  color: var(--front);
+}
+
+.drill-sheet--back .drill-sheet__arrow {
+  color: var(--back);
+}
+
+.drill-sheet__face {
+  position: absolute;
+  left: 50%;
+  bottom: 12px;
+  transform: translateX(-50%);
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+.drill__status {
+  margin: 14px 0 12px;
+  text-align: center;
+  font-size: 15px;
+}
+
+.drill__controls {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.drill__controls button {
+  padding: 8px 18px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #f1ede4;
+  color: var(--ink);
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.drill__controls button:hover:not(:disabled) {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+
+.drill__controls button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.drill .notice {
+  margin-top: 14px;
+}
+
+.drill__steps {
+  margin: 14px 0 0;
+  padding-left: 22px;
+  font-size: 13px;
+  color: var(--muted);
+  columns: 2;
+  column-gap: 32px;
+}
+
+.drill__steps:empty {
+  display: none;
+}
+
+.drill__steps li {
+  margin-bottom: 4px;
+  break-inside: avoid;
+}

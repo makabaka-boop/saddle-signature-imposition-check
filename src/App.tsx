@@ -5,6 +5,7 @@ import {
   type Side,
 } from './lib/imposition';
 import { SheetCard } from './components/SheetCard';
+import { PaperDrill } from './components/PaperDrill';
 
 export function App() {
   const [raw, setRaw] = useState('');
@@ -92,6 +93,8 @@ export function App() {
           </ol>
         </section>
       )}
+
+      <PaperDrill />
 
       <footer className="page-footer">
         <p>
