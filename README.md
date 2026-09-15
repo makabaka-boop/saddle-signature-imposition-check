@@ -102,9 +102,15 @@ docker compose up --build            # http://localhost:8080
 WEB_PORT=9000 docker compose up -d   # http://localhost:9000
 ```
 
-一次性验收服务 `verify`（构建镜像 → 类型检查/构建 → Vitest → Playwright，
-全部通过即退出，不常驻）：
+一次性验收服务 `verify`（**自动构建镜像** → 类型检查/构建 → Vitest → Playwright
+走通输入、翻面与错误清理的页面检查，全部通过即退出，不常驻）：
 
 ```bash
-docker compose --profile verify run --rm verify
+npm run verify:docker
+# 等价于：docker compose --profile verify run --rm --build verify
 ```
+
+> `--build` 强制每次重新构建镜像，避免误用旧的失败镜像层。镜像内浏览器版本与
+> `package-lock.json` 中的 `@playwright/test` 版本严格对应；升级 Playwright 后
+> 需同步修改 `Dockerfile` 中验收阶段的镜像标签（官方镜像仅提供
+> jammy/noble 变体，无 bookworm 标签）。
