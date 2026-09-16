@@ -274,4 +274,77 @@ test.describe('钉位检测区', () => {
     await expect(page.getByTestId('staple-result')).toBeVisible();
     await expect(page.getByTestId('staple-verdict')).toHaveAttribute('data-pass', 'false');
   });
+
+  test('超过安全整数范围的书脊长度：合法原值全程保留并判定合格', async ({ page }) => {
+    // 9007199254740993 = 2^53+1，双精度会静默舍入成 9007199254740992。
+    const HUGE = '9007199254740993';
+    await fillStaple(page, {
+      spineLength: HUGE,
+      tolerance: '3',
+      planned: `0, ${HUGE}`,
+      measured: `0, ${HUGE}`,
+    });
+    await page.getByTestId('staple-analyze').click();
+
+    await expect(page.getByTestId('staple-result')).toBeVisible();
+    await expect(page.getByTestId('staple-invalid-panel')).toHaveCount(0);
+    await expect(page.getByTestId('staple-verdict')).toHaveAttribute('data-pass', 'true');
+    // 连线图底端标尺与钉位标签保留精确原值，未被改小
+    const diagram = page.getByTestId('staple-diagram');
+    await expect(diagram).toContainText(`${HUGE} mm（底端）`);
+    const rows = page.getByTestId('staple-pair-row');
+    await expect(rows.nth(1)).toContainText(HUGE);
+    await expect(page.getByTestId('staple-summary-cost')).toHaveText('0');
+  });
+
+  test('两个严格递增的大整数计划位被接受并参与配对', async ({ page }) => {
+    // 9007199254740995 与 9007199254740996 数学上严格递增，
+    // 但双精度把二者舍入成同一个数，旧逻辑误判“重复”。
+    await fillStaple(page, {
+      spineLength: '100000000000000000000',
+      tolerance: '3',
+      planned: '9007199254740995, 9007199254740996',
+      measured: '9007199254740995, 9007199254740996',
+    });
+    await page.getByTestId('staple-analyze').click();
+    await expect(page.getByTestId('staple-result')).toBeVisible();
+    await expect(page.getByTestId('staple-invalid-panel')).toHaveCount(0);
+    await expect(page.getByTestId('staple-verdict')).toHaveAttribute('data-pass', 'true');
+    await expect(page.getByTestId('staple-summary-pairs')).toHaveText('2');
+    await expect(page.getByTestId('staple-pair-row')).toHaveCount(2);
+  });
+
+  test('超大容差下末端完全吻合：选择末位匹配并显示精确总代价', async ({ page }) => {
+    // 计划 2^53+1 / 2^53+3，实测仅 2^53+3（与末端严格相等）。
+    // 正确 DP：末位 0 偏差配对 + 漏首位（罚两倍容差）；旧双精度逻辑会
+    // 错配首位并把总代价显示成 Infinity。
+    const hugeTolerance = '1000000000000000000000000000000000000';
+    await fillStaple(page, {
+      spineLength: '100000000000000000000000',
+      tolerance: hugeTolerance,
+      planned: '9007199254740993, 9007199254740995',
+      measured: '9007199254740995',
+    });
+    await page.getByTestId('staple-analyze').click();
+    await expect(page.getByTestId('staple-result')).toBeVisible();
+
+    // 唯一配对是「第 2 个计划位 → 第 1 痕」，偏差 0、合格
+    const rows = page.getByTestId('staple-pair-row');
+    await expect(rows).toHaveCount(1);
+    await expect(rows.nth(0)).toContainText('第 2 个');
+    await expect(rows.nth(0)).toContainText('第 1 痕');
+    await expect(rows.nth(0).getByTestId('staple-pair-deviation')).toContainText('0');
+    await expect(rows.nth(0).getByTestId('staple-pair-status')).toHaveText('合格');
+
+    // 首位计划位漏钉
+    const missingRows = page.getByTestId('staple-missing-row');
+    await expect(missingRows).toHaveCount(1);
+    await expect(missingRows.nth(0)).toContainText('第 1 个计划位');
+    await expect(page.getByTestId('staple-summary-missing')).toHaveText('1');
+
+    // 总代价 = 两倍容差（精确大整数），不再是 Infinity
+    await expect(page.getByTestId('staple-summary-cost')).toHaveText(
+      '2000000000000000000000000000000000000',
+    );
+  });
 });

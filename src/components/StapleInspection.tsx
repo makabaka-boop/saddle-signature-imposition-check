@@ -1,12 +1,10 @@
 import { useRef, useState, type ChangeEvent, type RefObject } from 'react';
 import {
-  alignStaples,
+  analyzeStaples,
   parsePositionList,
-  validateStapleInput,
   type StapleDiagnosis,
   type StapleField,
   type StapleIssue,
-  type StapleMatch,
 } from '../lib/stapleInspection';
 
 /**
@@ -62,12 +60,6 @@ const FIELDS: readonly FieldDef[] = [
 
 const TOKEN_SPLIT_RE = /[\s,，、;；]+/;
 
-/** 毫米数显示：去掉二进制浮点尾巴（0.1+0.2 之类），保留最多 2 位小数。 */
-function formatMm(value: number): string {
-  const rounded = Math.round(value * 100) / 100;
-  return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(2).replace(/0+$/, '').replace(/\.$/, '');
-}
-
 function tokenize(raw: string): string[] {
   return raw.trim() === '' ? [] : raw.trim().split(TOKEN_SPLIT_RE).filter((t) => t !== '');
 }
@@ -121,10 +113,13 @@ function PairingDiagram({ diagnosis }: { diagnosis: StapleDiagnosis }) {
   const PAD_BOTTOM = 18;
   const PLANNED_X = 96;
   const MEASURED_X = WIDTH - 96;
-  const { spineLength } = diagnosis;
+  // 仅用于比例换算（SVG 像素坐标），不需要逐位精确；精确值一律走 *Text 字段。
+  const spineLength = diagnosis.spineLength;
 
   const yOf = (mm: number): number => {
-    const ratio = spineLength <= 0 ? 0 : Math.min(Math.max(mm / spineLength, 0), 1);
+    const ratio = spineLength <= 0 || !Number.isFinite(spineLength)
+      ? 0
+      : Math.min(Math.max(mm / spineLength, 0), 1);
     return PAD_TOP + ratio * (ROW_H - PAD_TOP - PAD_BOTTOM);
   };
 
@@ -148,7 +143,7 @@ function PairingDiagram({ diagnosis }: { diagnosis: StapleDiagnosis }) {
         0 mm（顶端）
       </text>
       <text x={WIDTH / 2} y={ROW_H - 4} textAnchor="middle" className="staple-diagram__scale">
-        {formatMm(spineLength)} mm（底端）
+        {diagnosis.spineLengthText} mm（底端）
       </text>
 
       {/* 配对连线 */}
@@ -185,7 +180,7 @@ function PairingDiagram({ diagnosis }: { diagnosis: StapleDiagnosis }) {
               }
             />
             <text x={PLANNED_X - 12} y={yOf(mm) + 4} textAnchor="end" className="staple-diagram__label">
-              {formatMm(mm)}
+              {diagnosis.plannedTexts[i]}
             </text>
           </g>
         );
@@ -207,7 +202,7 @@ function PairingDiagram({ diagnosis }: { diagnosis: StapleDiagnosis }) {
               }
             />
             <text x={MEASURED_X + 12} y={yOf(mm) + 4} textAnchor="start" className="staple-diagram__label">
-              {formatMm(mm)}
+              {diagnosis.measuredTexts[i]}
             </text>
           </g>
         );
@@ -223,9 +218,9 @@ function PairingDiagram({ diagnosis }: { diagnosis: StapleDiagnosis }) {
   );
 }
 
-function deviationText(match: StapleMatch): string {
-  const sign = match.deviationMm > 0 ? '+' : '';
-  return `${sign}${formatMm(match.deviationMm)}`;
+function deviationText(diagnosis: StapleDiagnosis, matchIndex: number): string {
+  // 精确带符号偏差（正数带 +），由 BigInt DP 直接给出，避免双精度丢位。
+  return diagnosis.matchDeviationTexts[matchIndex];
 }
 
 export function StapleInspection() {
@@ -253,12 +248,14 @@ export function StapleInspection() {
   };
 
   const analyze = () => {
-    const validation = validateStapleInput(raw);
-    if (!validation.ok) {
+    // 从原文到 DP 全程走精确十进制（analyzeStaples 内部先精确校验再 BigInt DP），
+    // 避免超大整数经 number 舍入后丢精度。
+    const result = analyzeStaples(raw);
+    if (result.kind === 'invalid') {
       // 待修正态：不产生任何诊断，定位第一个问题字段 / 列表项。
-      setIssues(validation.issues);
+      setIssues(result.issues);
       setDiagnosis(null);
-      const first = validation.issues[0];
+      const first = result.issues[0];
       const refs: Record<StapleField, RefObject<HTMLElement | null>> = {
         spineLength: spineRef,
         tolerance: toleranceRef,
@@ -269,7 +266,7 @@ export function StapleInspection() {
       return;
     }
     setIssues([]);
-    setDiagnosis(alignStaples(validation.input));
+    setDiagnosis(result);
   };
 
   const clearAll = () => {
@@ -409,7 +406,7 @@ export function StapleInspection() {
             role="status"
           >
             {diagnosis.passed
-              ? `钉位合格：${diagnosis.matches.length} 个钉全部在 ±${formatMm(diagnosis.tolerance)} mm 容差内，无漏钉、无多余钉痕。`
+              ? `钉位合格：${diagnosis.matches.length} 个钉全部在 ±${diagnosis.toleranceText} mm 容差内，无漏钉、无多余钉痕。`
               : '钉位不合格：存在超差配对、漏钉或多余钉痕，详见下方连线与清单。'}
           </p>
 
@@ -424,7 +421,7 @@ export function StapleInspection() {
               多余钉痕 <strong data-testid="staple-summary-extra">{diagnosis.extra.length}</strong> 个
             </span>
             <span>
-              DP 总代价 <strong data-testid="staple-summary-cost">{formatMm(diagnosis.totalCost)}</strong>
+              DP 总代价 <strong data-testid="staple-summary-cost">{diagnosis.totalCostText}</strong>
             </span>
           </div>
 
@@ -456,7 +453,7 @@ export function StapleInspection() {
                 </tr>
               </thead>
               <tbody>
-                {diagnosis.matches.map((match) => (
+                {diagnosis.matches.map((match, matchIndex) => (
                   <tr
                     key={`${match.plannedIndex}-${match.measuredIndex}`}
                     data-testid={PAIR_ROW_TESTID}
@@ -464,16 +461,16 @@ export function StapleInspection() {
                     className={match.withinTolerance ? '' : 'staple-table__row--over'}
                   >
                     <td>
-                      第 {match.plannedIndex + 1} 个 · {formatMm(match.plannedMm)} mm
+                      第 {match.plannedIndex + 1} 个 · {diagnosis.plannedTexts[match.plannedIndex]} mm
                     </td>
                     <td>
-                      第 {match.measuredIndex + 1} 痕 · {formatMm(match.measuredMm)} mm
+                      第 {match.measuredIndex + 1} 痕 · {diagnosis.measuredTexts[match.measuredIndex]} mm
                     </td>
                     <td data-testid="staple-pair-deviation">
-                      {deviationText(match)} mm（|Δ| {formatMm(match.absDeviationMm)}）
+                      {deviationText(diagnosis, matchIndex)} mm（|Δ| {diagnosis.matchAbsDeviationTexts[matchIndex]}）
                     </td>
                     <td data-testid="staple-pair-status">
-                      {match.withinTolerance ? '合格' : `超差（容差 ${formatMm(diagnosis.tolerance)}）`}
+                      {match.withinTolerance ? '合格' : `超差（容差 ${diagnosis.toleranceText}）`}
                     </td>
                   </tr>
                 ))}
@@ -491,7 +488,7 @@ export function StapleInspection() {
                   <ul className="staple-item-list">
                     {diagnosis.missing.map((item) => (
                       <li key={item.index} data-testid={MISSING_ROW_TESTID} data-index={item.index}>
-                        第 {item.index + 1} 个计划位 · {formatMm(item.mm)} mm 无对应实测钉痕
+                        第 {item.index + 1} 个计划位 · {diagnosis.plannedTexts[item.index]} mm 无对应实测钉痕
                       </li>
                     ))}
                   </ul>
@@ -507,7 +504,7 @@ export function StapleInspection() {
                   <ul className="staple-item-list">
                     {diagnosis.extra.map((item) => (
                       <li key={item.index} data-testid={EXTRA_ROW_TESTID} data-index={item.index}>
-                        第 {item.index + 1} 痕 · {formatMm(item.mm)} mm 疑似误识别的多余钉痕
+                        第 {item.index + 1} 痕 · {diagnosis.measuredTexts[item.index]} mm 疑似误识别的多余钉痕
                       </li>
                     ))}
                   </ul>

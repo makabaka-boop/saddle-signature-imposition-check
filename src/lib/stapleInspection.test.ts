@@ -389,3 +389,107 @@ describe('完整录入流程 analyzeStaples', () => {
     expect(result.passed).toBe(true);
   });
 });
+
+describe('精确十进制语义（超过安全整数范围不丢精度）', () => {
+  it('书脊长度超过安全整数：合法原值全程保留，不被静默改小', () => {
+    // 9007199254740993 = 2^53+1，Number 会舍入成 9007199254740992。
+    const result = analyzeStaples({
+      spineLength: '9007199254740993',
+      tolerance: '3',
+      planned: '0, 9007199254740993',
+      measured: '0, 9007199254740993',
+    });
+    expect(result.kind).toBe('ok');
+    if (result.kind !== 'ok') throw new Error('应当合法');
+    expect(result.spineLengthText).toBe('9007199254740993');
+    expect(result.plannedTexts).toEqual(['0', '9007199254740993']);
+    expect(result.measuredTexts).toEqual(['0', '9007199254740993']);
+    // 末端计划位 == 书脊长度（含边界合法），且两对完全吻合。
+    expect(result.matches).toHaveLength(2);
+    expect(result.passed).toBe(true);
+    expect(result.totalCostText).toBe('0');
+  });
+
+  it('两个数学上严格递增的大整数计划位不被误判为重复', () => {
+    // 9007199254740993 与 9007199254740994 数学上严格递增，
+    // 但 Number 会把前者舍入成 9007199254740992、把后者精确表示，
+    // 另一组 9007199254740995/9007199254740996 更会双双舍入为同一数。
+    for (const planned of [
+      '9007199254740993, 9007199254740994',
+      '9007199254740995, 9007199254740996',
+    ]) {
+      const result = analyzeStaples({
+        spineLength: '100000000000000000000',
+        tolerance: '3',
+        planned,
+        measured: planned,
+      });
+      expect(result.kind, planned).toBe('ok');
+      if (result.kind !== 'ok') throw new Error('应当合法');
+      expect(result.matches).toHaveLength(2);
+      expect(result.passed).toBe(true);
+    }
+  });
+
+  it('真正相等的大整数仍判重复', () => {
+    const result = analyzeStaples({
+      spineLength: '100000000000000000000',
+      tolerance: '3',
+      planned: '9007199254740993, 9007199254740993',
+      measured: '9007199254740993',
+    });
+    expect(result.kind).toBe('invalid');
+    if (result.kind !== 'invalid') throw new Error('应当校验失败');
+    expect(result.issues).toEqual([
+      expect.objectContaining({ field: 'planned', itemIndex: 1, reason: 'duplicate' }),
+    ]);
+  });
+
+  it('超大容差下末端完全吻合：选择成本更低的末位匹配，总代价精确', () => {
+    // 计划 2^53+1 / 2^53+3，实测仅 2^53+3（与末端严格相等）。
+    // 末位匹配代价 0 + 漏首位罚两倍容差；首位匹配偏差 2 + 漏末位罚两倍容差。
+    // 容差极大时旧 number DP 会因溢出/舍入错配首位并给出 Infinity 总代价。
+    const hugeTolerance = '1000000000000000000000000000000000000';
+    const result = analyzeStaples({
+      spineLength: '100000000000000000000000',
+      tolerance: hugeTolerance,
+      planned: '9007199254740993, 9007199254740995',
+      measured: '9007199254740995',
+    });
+    expect(result.kind).toBe('ok');
+    if (result.kind !== 'ok') throw new Error('应当合法');
+    expect(result.matches.map((m) => [m.plannedIndex, m.measuredIndex])).toEqual([[1, 0]]);
+    expect(result.missing.map((m) => m.index)).toEqual([0]);
+    expect(result.matchAbsDeviationTexts).toEqual(['0']);
+    expect(result.penaltyCostText).toBe(`2${'0'.repeat(36)}`);
+    expect(result.totalCostText).toBe(result.penaltyCostText);
+    expect(Number.isFinite(result.totalCost)).toBe(true);
+  });
+
+  it('大整数超出书脊仍精确定位 out-of-spine', () => {
+    const result = analyzeStaples({
+      spineLength: '9007199254740993',
+      tolerance: '3',
+      planned: '9007199254740994',
+      measured: '1',
+    });
+    expect(result.kind).toBe('invalid');
+    if (result.kind !== 'invalid') throw new Error('应当校验失败');
+    expect(result.issues).toEqual([
+      expect.objectContaining({ field: 'planned', itemIndex: 0, reason: 'out-of-spine' }),
+    ]);
+  });
+
+  it('不同小数位的精确十进制在同一尺度下比较（2.5001 > 2.50 判超差）', () => {
+    const result = analyzeStaples({
+      spineLength: '300',
+      tolerance: '2.50',
+      planned: '200.5',
+      measured: '203.0001',
+    });
+    expect(result.kind).toBe('ok');
+    if (result.kind !== 'ok') throw new Error('应当合法');
+    expect(result.matchDeviationTexts).toEqual(['+2.5001']);
+    expect(result.matches[0].withinTolerance).toBe(false);
+  });
+});

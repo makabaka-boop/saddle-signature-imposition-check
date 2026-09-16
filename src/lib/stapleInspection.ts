@@ -21,12 +21,35 @@
  * （未配对总数相同）且配对集合一一对应时，字典序小的路径更早把第 k
  * 个配对落给序号更小（更靠上）的实测痕。
  *
+ * ## 精确十进制语义
+ *
+ * 质检员可以录入远超 `Number.MAX_SAFE_INTEGER` 的毫米数（如书脊长度
+ * 9007199254740993）。IEEE-754 双精度无法逐位表示这种整数：直接
+ * `Number(text)` 会静默把合法原值改小、把两个数学上严格递增的大整数
+ * 舍入成同一个数（误判重复），超大容差下还会让 DP 的总代价溢出成
+ * `Infinity` 并选错路径。因此本模块从解析、校验、动态规划到结果展示
+ * 全部走**十进制原文 → 定点 BigInt** 的精确路径，`number` 仅用于 SVG
+ * 比例换算等不需要精确值的场合。
+ *
  * 本模块是纯函数模块，不读取也不改写拼版（imposition）与走纸演练
  * （paperDrill）的任何状态。
  */
 
 /** 漏一个计划位 / 多一个实测痕的罚分相对容差的倍数（罚两倍容差）。 */
 export const MISS_PENALTY_FACTOR = 2;
+
+/**
+ * 精确十进制值：用「整数 mantissa × 10^−scale」表示录入原文，
+ * 不经过二进制浮点。scale 是小数位数（非负整数）。
+ */
+export interface Decimal {
+  /** 去掉小数点后的十进制整数（可带负号），如 "1.50" → 15n、scale 2。 */
+  readonly mantissa: bigint;
+  /** 小数位数（如 "1.5" 为 1、"12" 为 0）。 */
+  readonly scale: number;
+  /** 归一化后的十进制原文（用于结果展示时保留精确长度）。 */
+  readonly text: string;
+}
 
 /** 书脊自上而下的一个毫米坐标（顶端为 0，底端为书脊长度）。 */
 export interface StapleInput {
@@ -38,6 +61,14 @@ export interface StapleInput {
   readonly planned: readonly number[];
   /** 实测钉痕（毫米），自上而下严格递增、均在 [0, spineLength] 内。 */
   readonly measured: readonly number[];
+}
+
+/** 精确版本的 {@link StapleInput}：所有数值均保留十进制精确语义。 */
+export interface ExactStapleInput {
+  readonly spineLength: Decimal;
+  readonly tolerance: Decimal;
+  readonly planned: readonly Decimal[];
+  readonly measured: readonly Decimal[];
 }
 
 /** 可定位的录入字段。 */
@@ -105,6 +136,26 @@ export interface StapleDiagnosis {
   readonly penaltyCost: number;
   /** 是否合格：无漏钉、无多余钉痕且每个配对偏差都不超过容差。 */
   readonly passed: boolean;
+
+  // —— 精确十进制伴随字段（与上面的 number 字段一一对应，全程不丢精度）——
+  /** 精确书脊长度原文。 */
+  readonly spineLengthText: string;
+  /** 精确允许偏差原文。 */
+  readonly toleranceText: string;
+  /** 各计划钉位精确原文（与 planned 同序）。 */
+  readonly plannedTexts: readonly string[];
+  /** 各实测钉痕精确原文（与 measured 同序）。 */
+  readonly measuredTexts: readonly string[];
+  /** 每对的带符号偏差精确文本（与 matches 同序，正数带 +）。 */
+  readonly matchDeviationTexts: readonly string[];
+  /** 每对的绝对偏差精确文本（与 matches 同序）。 */
+  readonly matchAbsDeviationTexts: readonly string[];
+  /** DP 最优总代价精确文本。 */
+  readonly totalCostText: string;
+  /** 配对代价之和精确文本。 */
+  readonly matchedCostText: string;
+  /** 罚分总额精确文本。 */
+  readonly penaltyCostText: string;
 }
 
 export type StapleResult = StapleDiagnosis | StapleInvalid;
@@ -119,6 +170,159 @@ const FIELD_LABEL: Record<StapleField, string> = {
   measured: '实测钉痕',
 };
 
+/* ------------------------------------------------------------------ */
+/* 精确十进制工具                                                      */
+/* ------------------------------------------------------------------ */
+
+/** 归一化十进制原文：去前导零 / 多余小数点尾零 / 前导 + 号；保留纯整数原值。 */
+export function normalizeDecimalText(text: string): string {
+  let t = text.trim();
+  let sign = '';
+  if (t[0] === '+' || t[0] === '-') {
+    if (t[0] === '-') {
+      sign = '-';
+    }
+    t = t.slice(1);
+  }
+  let intPart: string;
+  let fracPart: string;
+  const dot = t.indexOf('.');
+  if (dot === -1) {
+    intPart = t;
+    fracPart = '';
+  } else {
+    intPart = t.slice(0, dot);
+    fracPart = t.slice(dot + 1);
+  }
+  intPart = intPart.replace(/^0+(?=\d)/, '');
+  if (intPart === '') {
+    intPart = '0';
+  }
+  if (fracPart !== '') {
+    fracPart = fracPart.replace(/0+$/, '');
+  }
+  // "-0"、"-0.0" 统一为 "0"
+  if (intPart === '0' && fracPart === '') {
+    sign = '';
+  }
+  return fracPart === '' ? `${sign}${intPart}` : `${sign}${intPart}.${fracPart}`;
+}
+
+/** 把十进制原文解析成 {@link Decimal}；不合法（科学计数法 / 文本 / 空）返回 null。 */
+export function parseDecimal(raw: string): Decimal | null {
+  const text = raw.trim();
+  if (text === '' || !DECIMAL_RE.test(text)) {
+    return null;
+  }
+  let signPart = '';
+  let body = text;
+  if (body[0] === '+' || body[0] === '-') {
+    if (body[0] === '-') {
+      signPart = '-';
+    }
+    body = body.slice(1);
+  }
+  const dot = body.indexOf('.');
+  const intPart = dot === -1 ? body : body.slice(0, dot);
+  const fracPart = dot === -1 ? '' : body.slice(dot + 1);
+  const digits = `${signPart}${intPart}${fracPart}`;
+  let mantissa: bigint;
+  try {
+    mantissa = BigInt(digits);
+  } catch {
+    return null;
+  }
+  // 规范化负零
+  if (mantissa === 0n) {
+    mantissa = 0n;
+  }
+  const scale = fracPart.length;
+  return { mantissa, scale, text: normalizeDecimalText(text) };
+}
+
+/** 把 number 转成与其十进制显示一致的 {@link Decimal}（仅用于既有 number 入口）。 */
+function decimalFromNumber(value: number): Decimal {
+  if (Number.isInteger(value)) {
+    return { mantissa: BigInt(value), scale: 0, text: String(value) };
+  }
+  const parsed = parseDecimal(String(value));
+  if (parsed === null) {
+    // Infinity / NaN 等不应出现在合法输入中；兜底成 0。
+    return { mantissa: 0n, scale: 0, text: '0' };
+  }
+  return parsed;
+}
+
+/** 把 Decimal 放大到指定 scale：返回该尺度下的整数 BigInt。 */
+function rescale(value: Decimal, scale: number): bigint {
+  if (value.scale === scale) {
+    return value.mantissa;
+  }
+  if (value.scale < scale) {
+    return value.mantissa * 10n ** BigInt(scale - value.scale);
+  }
+  // 同一次分析内所有值都会先统一到最大 scale，正常不会走这里。
+  return value.mantissa / 10n ** BigInt(value.scale - scale);
+}
+
+/** 安全地把同尺度整数 BigInt 转回 number（超出安全整数时返回 null）。 */
+function bigintToNumber(value: bigint): number | null {
+  if (value < BigInt(Number.MIN_SAFE_INTEGER) || value > BigInt(Number.MAX_SAFE_INTEGER)) {
+    return null;
+  }
+  return Number(value);
+}
+
+/** 把 Decimal 转成 number；精度不足以精确表示时返回 null。 */
+export function decimalToNumber(value: Decimal): number | null {
+  const scaled = rescale(value, 0);
+  if (value.scale === 0) {
+    return bigintToNumber(scaled);
+  }
+  const intPart = value.mantissa / 10n ** BigInt(value.scale);
+  const fracPart =
+    (value.mantissa < 0n ? -value.mantissa : value.mantissa) % 10n ** BigInt(value.scale);
+  // 小数部分超出双精度可安全表达的整数范围时，整体已无法精确还原。
+  if (
+    intPart > BigInt(Number.MAX_SAFE_INTEGER) ||
+    intPart < BigInt(Number.MIN_SAFE_INTEGER) ||
+    fracPart > BigInt(Number.MAX_SAFE_INTEGER)
+  ) {
+    return null;
+  }
+  const result = Number(value.text);
+  // 回读校验：双精度必须恰好能表达该十进制值。
+  return result.toString() === value.text || normalizeDecimalText(result.toString()) === value.text
+    ? result
+    : null;
+}
+
+/** 精确文本的有限 number 镜像：溢出时退化到 MAX_VALUE（UI 一律用精确文本）。 */
+function finiteNumberOf(scaled: bigint, scale: number): number {
+  const n = Number(formatScaled(scaled, scale));
+  return Number.isFinite(n) ? n : (scaled < 0n ? -Number.MAX_VALUE : Number.MAX_VALUE);
+}
+
+/** 把非负同尺度 BigInt 格式化为十进制文本（scale = 小数位数）。 */
+function formatScaled(value: bigint, scale: number): string {
+  const negative = value < 0n;
+  const digits = (negative ? -value : value).toString();
+  let body: string;
+  if (scale === 0) {
+    body = digits;
+  } else if (digits.length <= scale) {
+    body = `0.${'0'.repeat(scale - digits.length)}${digits}`;
+  } else {
+    body = `${digits.slice(0, digits.length - scale)}.${digits.slice(digits.length - scale)}`;
+  }
+  body = normalizeDecimalText(body);
+  return negative && body !== '0' ? `-${body}` : body;
+}
+
+/* ------------------------------------------------------------------ */
+/* 兼容 number 的解析入口（小规模输入时与旧行为完全一致）              */
+/* ------------------------------------------------------------------ */
+
 /** 解析一个标量毫米参数原文；空串 / 空白给 'empty'，非十进制文本给 'not-number'。 */
 export function parseScalar(raw: string):
   | { readonly ok: true; readonly value: number }
@@ -127,7 +331,8 @@ export function parseScalar(raw: string):
   if (text === '') {
     return { ok: false, reason: 'empty' };
   }
-  if (!DECIMAL_RE.test(text)) {
+  const decimal = parseDecimal(text);
+  if (decimal === null) {
     return { ok: false, reason: 'not-number' };
   }
   const value = Number(text);
@@ -158,14 +363,51 @@ export function parsePositionList(raw: string):
   const values: number[] = [];
   for (let i = 0; i < tokens.length; i += 1) {
     const token = tokens[i];
-    if (!DECIMAL_RE.test(token)) {
+    if (parseDecimal(token) === null || !Number.isFinite(Number(token))) {
       return { ok: false, reason: 'not-number', itemIndex: i };
     }
-    const value = Number(token);
-    if (!Number.isFinite(value)) {
+    values.push(Number(token));
+  }
+  return { ok: true, values };
+}
+
+/* ------------------------------------------------------------------ */
+/* 精确解析（内部使用：大整数全程保留十进制原文）                      */
+/* ------------------------------------------------------------------ */
+
+type ExactScalarResult =
+  | { readonly ok: true; readonly value: Decimal }
+  | { readonly ok: false; readonly reason: ScalarReason };
+
+function parseExactScalar(raw: string): ExactScalarResult {
+  const text = raw.trim();
+  if (text === '') {
+    return { ok: false, reason: 'empty' };
+  }
+  const decimal = parseDecimal(text);
+  if (decimal === null) {
+    return { ok: false, reason: 'not-number' };
+  }
+  return { ok: true, value: decimal };
+}
+
+type ExactListResult =
+  | { readonly ok: true; readonly values: Decimal[] }
+  | { readonly ok: false; readonly reason: 'empty' | 'not-number'; readonly itemIndex: number | null };
+
+function parseExactPositionList(raw: string): ExactListResult {
+  const text = raw.trim();
+  if (text === '') {
+    return { ok: false, reason: 'empty', itemIndex: null };
+  }
+  const tokens = text.split(TOKEN_SPLIT_RE).filter((token) => token !== '');
+  const values: Decimal[] = [];
+  for (let i = 0; i < tokens.length; i += 1) {
+    const decimal = parseDecimal(tokens[i]);
+    if (decimal === null) {
       return { ok: false, reason: 'not-number', itemIndex: i };
     }
-    values.push(value);
+    values.push(decimal);
   }
   return { ok: true, values };
 }
@@ -201,22 +443,27 @@ function itemMessage(field: StapleField, reason: ItemReason, itemIndex: number):
   }
 }
 
+/** 精确校验结果：合法时同时给出精确输入与其 number 镜像。 */
+type ExactValidation =
+  | { readonly ok: true; readonly exact: ExactStapleInput; readonly input: StapleInput }
+  | { readonly ok: false; readonly issues: StapleIssue[] };
+
 /**
- * 校验四个录入字段。任何一项不完整或不合法都停留在待修正态：
+ * 校验四个录入字段（精确十进制）。任何一项不完整或不合法都停留在待修正态：
  * 标量需为正数；两个列表各自要求可解析、自上而下严格递增、无重复、
  * 不超出 [0, spineLength]。每个问题都带字段（列表项还带项序号），
- * 供界面定位。
+ * 供界面定位。比较全部走 BigInt，超大整数也不会被舍入。
  */
-export function validateStapleInput(raw: {
+function validateExact(raw: {
   spineLength: string;
   tolerance: string;
   planned: string;
   measured: string;
-}): { readonly ok: true; readonly input: StapleInput } | { readonly ok: false; readonly issues: StapleIssue[] } {
+}): ExactValidation {
   const issues: StapleIssue[] = [];
 
-  let spineLength = 0;
-  const spineParsed = parseScalar(raw.spineLength);
+  let spineLength: Decimal | null = null;
+  const spineParsed = parseExactScalar(raw.spineLength);
   if (!spineParsed.ok) {
     issues.push({
       field: 'spineLength',
@@ -224,7 +471,7 @@ export function validateStapleInput(raw: {
       reason: spineParsed.reason,
       message: scalarMessage('spineLength', spineParsed.reason),
     });
-  } else if (spineParsed.value <= 0) {
+  } else if (spineParsed.value.mantissa <= 0n) {
     issues.push({
       field: 'spineLength',
       itemIndex: null,
@@ -235,8 +482,8 @@ export function validateStapleInput(raw: {
     spineLength = spineParsed.value;
   }
 
-  let tolerance = 0;
-  const toleranceParsed = parseScalar(raw.tolerance);
+  let tolerance: Decimal | null = null;
+  const toleranceParsed = parseExactScalar(raw.tolerance);
   if (!toleranceParsed.ok) {
     issues.push({
       field: 'tolerance',
@@ -244,7 +491,7 @@ export function validateStapleInput(raw: {
       reason: toleranceParsed.reason,
       message: scalarMessage('tolerance', toleranceParsed.reason),
     });
-  } else if (toleranceParsed.value <= 0) {
+  } else if (toleranceParsed.value.mantissa <= 0n) {
     issues.push({
       field: 'tolerance',
       itemIndex: null,
@@ -255,21 +502,14 @@ export function validateStapleInput(raw: {
     tolerance = toleranceParsed.value;
   }
 
-  const parseList = (
-    field: StapleField,
-    rawList: string,
-  ): number[] | null => {
-    const parsed = parsePositionList(rawList);
+  const parseList = (field: StapleField, rawList: string): Decimal[] | null => {
+    const parsed = parseExactPositionList(rawList);
     if (!parsed.ok) {
       issues.push({
         field,
         itemIndex: parsed.itemIndex,
         reason: parsed.reason,
-        message: itemMessage(
-          field,
-          parsed.reason,
-          parsed.itemIndex ?? 0,
-        ),
+        message: itemMessage(field, parsed.reason, parsed.itemIndex ?? 0),
       });
       return null;
     }
@@ -279,13 +519,23 @@ export function validateStapleInput(raw: {
   const planned = parseList('planned', raw.planned);
   const measured = parseList('measured', raw.measured);
 
-  const checkOrderAndRange = (field: StapleField, values: number[] | null): void => {
+  // 顺序/重复始终精确判定（不依赖书脊是否合法）；范围判定仅在书脊可用时进行。
+  const checkOrderAndRange = (field: StapleField, values: Decimal[] | null): void => {
     if (values === null) {
       return;
     }
+    // 顺序判定只需把各值统一到本列表自身的小数位数。
+    const orderScale = Math.max(...values.map((v) => v.scale));
+    // 范围判定还要与书脊长度同尺度。
+    const rangeScale =
+      spineLength !== null
+        ? Math.max(orderScale, spineLength.scale)
+        : orderScale;
+    const spineAtScale = spineLength !== null ? rescale(spineLength, rangeScale) : null;
     for (let i = 0; i < values.length; i += 1) {
-      if (spineParsed.ok && spineParsed.value > 0) {
-        if (values[i] < 0 || values[i] > spineLength) {
+      if (spineAtScale !== null) {
+        const currentForRange = rescale(values[i], rangeScale);
+        if (currentForRange < 0n || currentForRange > spineAtScale) {
           issues.push({
             field,
             itemIndex: i,
@@ -295,14 +545,16 @@ export function validateStapleInput(raw: {
         }
       }
       if (i > 0) {
-        if (values[i] === values[i - 1]) {
+        const current = rescale(values[i], orderScale);
+        const prev = rescale(values[i - 1], orderScale);
+        if (current === prev) {
           issues.push({
             field,
             itemIndex: i,
             reason: 'duplicate',
             message: itemMessage(field, 'duplicate', i),
           });
-        } else if (values[i] < values[i - 1]) {
+        } else if (current < prev) {
           issues.push({
             field,
             itemIndex: i,
@@ -317,18 +569,63 @@ export function validateStapleInput(raw: {
   checkOrderAndRange('planned', planned);
   checkOrderAndRange('measured', measured);
 
-  if (issues.length > 0 || planned === null || measured === null) {
+  if (issues.length > 0 || planned === null || measured === null || tolerance === null) {
     return { ok: false, issues };
   }
+
+  const exact: ExactStapleInput = {
+    spineLength: spineLength as Decimal,
+    tolerance: tolerance as Decimal,
+    planned,
+    measured,
+  };
+  return { ok: true, exact, input: toNumberInput(exact) };
+}
+
+/** 精确输入的 number 镜像：安全范围内逐位一致；超范围时给出最接近的有限近似值。 */
+function toNumberInput(exact: ExactStapleInput): StapleInput {
+  const approx = (d: Decimal): number => {
+    const exactNumber = decimalToNumber(d);
+    if (exactNumber !== null) {
+      return exactNumber;
+    }
+    const rounded = Number(d.text);
+    return Number.isFinite(rounded) ? rounded : Number.MAX_VALUE;
+  };
   return {
-    ok: true,
-    input: { spineLength, tolerance, planned, measured },
+    spineLength: approx(exact.spineLength),
+    tolerance: approx(exact.tolerance),
+    planned: exact.planned.map(approx),
+    measured: exact.measured.map(approx),
   };
 }
 
+/**
+ * 校验四个录入字段。任何一项不完整或不合法都停留在待修正态：
+ * 标量需为正数；两个列表各自要求可解析、自上而下严格递增、无重复、
+ * 不超出 [0, spineLength]。每个问题都带字段（列表项还带项序号），
+ * 供界面定位。
+ */
+export function validateStapleInput(raw: {
+  spineLength: string;
+  tolerance: string;
+  planned: string;
+  measured: string;
+}): { readonly ok: true; readonly input: StapleInput } | { readonly ok: false; readonly issues: StapleIssue[] } {
+  const validation = validateExact(raw);
+  if (!validation.ok) {
+    return { ok: false, issues: validation.issues };
+  }
+  return { ok: true, input: validation.input };
+}
+
+/* ------------------------------------------------------------------ */
+/* 全局动态规划（精确 BigInt 算术）                                    */
+/* ------------------------------------------------------------------ */
+
 interface CellState {
-  /** 到达该格的最小总代价。 */
-  cost: number;
+  /** 到达该格的最小总代价（统一尺度下的非负整数）。 */
+  cost: bigint;
   /** 该路径上的未配对项（漏计划位 + 多实测痕）总数。 */
   unpaired: number;
   /** 该路径上配对所用 (计划位下标, 实测痕下标)，按下标递增排列。 */
@@ -337,14 +634,12 @@ interface CellState {
   from: 'diag' | 'up' | 'left' | 'start';
 }
 
-const COST_EPS = 1e-9;
-
 /** 两条路径的决胜：先总代价，再未配对更少，再较早实测痕，最后较早计划位。 */
 function preferCandidate(candidate: CellState, current: CellState): boolean {
-  if (candidate.cost < current.cost - COST_EPS) {
+  if (candidate.cost < current.cost) {
     return true;
   }
-  if (candidate.cost > current.cost + COST_EPS) {
+  if (candidate.cost > current.cost) {
     return false;
   }
   if (candidate.unpaired !== current.unpaired) {
@@ -366,7 +661,7 @@ function preferCandidate(candidate: CellState, current: CellState): boolean {
 }
 
 /**
- * 全局最优有序对齐（动态规划）。
+ * 全局最优有序对齐（动态规划，BigInt 精确代价）。
  *
  * dp[i][j] 表示 planned[0..i) 与 measured[0..j) 对齐的最优状态，
  * 三种转移：
@@ -377,20 +672,32 @@ function preferCandidate(candidate: CellState, current: CellState): boolean {
  * 不做任何逐点最近邻贪心：每个格子都比较全部三种来源，
  * 由 {@link preferCandidate} 按总代价与稳定决胜取唯一最优路径。
  */
-export function alignStaples(input: StapleInput): StapleDiagnosis {
-  const { spineLength, tolerance, planned, measured } = input;
+function alignExact(exact: ExactStapleInput, input: StapleInput): StapleDiagnosis {
+  const planned = exact.planned;
+  const measured = exact.measured;
   const m = planned.length;
   const n = measured.length;
-  const penalty = MISS_PENALTY_FACTOR * tolerance;
+
+  // 全部数值统一到同一位数尺度：偏差、容差、罚分才能在同一整数格点上相加。
+  const scale = Math.max(
+    exact.spineLength.scale,
+    exact.tolerance.scale,
+    ...planned.map((d) => d.scale),
+    ...measured.map((d) => d.scale),
+  );
+  const plannedS = planned.map((d) => rescale(d, scale));
+  const measuredS = measured.map((d) => rescale(d, scale));
+  const toleranceS = rescale(exact.tolerance, scale);
+  const penalty = BigInt(MISS_PENALTY_FACTOR) * toleranceS;
 
   const dp: CellState[][] = [];
   for (let i = 0; i <= m; i += 1) {
     dp.push(new Array<CellState>(n + 1));
   }
-  dp[0][0] = { cost: 0, unpaired: 0, pairs: [], from: 'start' };
+  dp[0][0] = { cost: 0n, unpaired: 0, pairs: [], from: 'start' };
   for (let i = 1; i <= m; i += 1) {
     dp[i][0] = {
-      cost: i * penalty,
+      cost: BigInt(i) * penalty,
       unpaired: i,
       pairs: [],
       from: 'up',
@@ -398,7 +705,7 @@ export function alignStaples(input: StapleInput): StapleDiagnosis {
   }
   for (let j = 1; j <= n; j += 1) {
     dp[0][j] = {
-      cost: j * penalty,
+      cost: BigInt(j) * penalty,
       unpaired: j,
       pairs: [],
       from: 'left',
@@ -408,7 +715,8 @@ export function alignStaples(input: StapleInput): StapleDiagnosis {
   for (let i = 1; i <= m; i += 1) {
     for (let j = 1; j <= n; j += 1) {
       const diagPrev = dp[i - 1][j - 1];
-      const pairCost = Math.abs(planned[i - 1] - measured[j - 1]);
+      const diff = plannedS[i - 1] - measuredS[j - 1];
+      const pairCost = diff < 0n ? -diff : diff;
       const diag: CellState = {
         cost: diagPrev.cost + pairCost,
         unpaired: diagPrev.unpaired,
@@ -462,17 +770,36 @@ export function alignStaples(input: StapleInput): StapleDiagnosis {
   }
   pairList.reverse();
 
-  const matches: StapleMatch[] = pairList.map(([pi, mj]) => {
-    const deviation = measured[mj] - planned[pi];
-    const absDeviation = Math.abs(deviation);
+  interface MatchRecord {
+    readonly plannedIndex: number;
+    readonly measuredIndex: number;
+    readonly deviation: bigint;
+    readonly absDeviation: bigint;
+    readonly withinTolerance: boolean;
+  }
+  const matchRecords: MatchRecord[] = pairList.map(([pi, mj]) => {
+    const deviation = measuredS[mj] - plannedS[pi];
+    const absDeviation = deviation < 0n ? -deviation : deviation;
     return {
       plannedIndex: pi,
       measuredIndex: mj,
-      plannedMm: planned[pi],
-      measuredMm: measured[mj],
-      deviationMm: deviation,
-      absDeviationMm: absDeviation,
-      withinTolerance: absDeviation <= tolerance + COST_EPS,
+      deviation,
+      absDeviation,
+      withinTolerance: absDeviation <= toleranceS,
+    };
+  });
+
+  const matches: StapleMatch[] = matchRecords.map((record) => {
+    const deviationNumber = finiteNumberOf(record.deviation, scale);
+    const absNumber = finiteNumberOf(record.absDeviation, scale);
+    return {
+      plannedIndex: record.plannedIndex,
+      measuredIndex: record.measuredIndex,
+      plannedMm: input.planned[record.plannedIndex],
+      measuredMm: input.measured[record.measuredIndex],
+      deviationMm: deviationNumber,
+      absDeviationMm: absNumber,
+      withinTolerance: record.withinTolerance,
     };
   });
 
@@ -480,40 +807,75 @@ export function alignStaples(input: StapleInput): StapleDiagnosis {
   const pairedMeasured = new Set(pairList.map(([, mj]) => mj));
 
   const missing = planned
-    .map((mm, index) => ({ index, mm }))
+    .map((_d, index) => ({ index, mm: input.planned[index] }))
     .filter(({ index }) => !pairedPlanned.has(index));
   const extra = measured
-    .map((mm, index) => ({ index, mm }))
+    .map((_d, index) => ({ index, mm: input.measured[index] }))
     .filter(({ index }) => !pairedMeasured.has(index));
 
-  const matchedCost = matches.reduce(
-    (sum, match) => sum + match.absDeviationMm,
-    0,
-  );
+  let matchedCostS = 0n;
+  for (const record of matchRecords) {
+    matchedCostS += record.absDeviation;
+  }
   const finalCell = dp[m][n];
+  const penaltyCostS = finalCell.cost - matchedCostS;
+
+  const signText = (value: bigint): string => {
+    if (value > 0n) {
+      return `+${formatScaled(value, scale)}`;
+    }
+    return formatScaled(value, scale);
+  };
 
   return {
     kind: 'ok',
-    spineLength,
-    tolerance,
-    planned,
-    measured,
+    spineLength: input.spineLength,
+    tolerance: input.tolerance,
+    planned: input.planned,
+    measured: input.measured,
     matches,
     missing,
     extra,
-    totalCost: finalCell.cost,
-    matchedCost,
-    penaltyCost: finalCell.cost - matchedCost,
+    totalCost: finiteNumberOf(finalCell.cost, scale),
+    matchedCost: finiteNumberOf(matchedCostS, scale),
+    penaltyCost: finiteNumberOf(penaltyCostS, scale),
     passed:
       missing.length === 0 &&
       extra.length === 0 &&
-      matches.every((match) => match.withinTolerance),
+      matchRecords.every((record) => record.withinTolerance),
+
+    spineLengthText: exact.spineLength.text,
+    toleranceText: exact.tolerance.text,
+    plannedTexts: planned.map((d) => d.text),
+    measuredTexts: measured.map((d) => d.text),
+    matchDeviationTexts: matchRecords.map((record) => signText(record.deviation)),
+    matchAbsDeviationTexts: matchRecords.map((record) => formatScaled(record.absDeviation, scale)),
+    totalCostText: formatScaled(finalCell.cost, scale),
+    matchedCostText: formatScaled(matchedCostS, scale),
+    penaltyCostText: formatScaled(penaltyCostS, scale),
   };
 }
 
 /**
+ * 全局最优有序对齐（动态规划）。
+ *
+ * @deprecated 直接传 number 无法表达超出安全整数范围的精确值；页面流程走
+ * {@link analyzeStaples}（从十进制原文解析）。此入口保留给既有调用，
+ * 内部把 number 还原为十进制后仍走同一条精确 DP。
+ */
+export function alignStaples(input: StapleInput): StapleDiagnosis {
+  const exact: ExactStapleInput = {
+    spineLength: decimalFromNumber(input.spineLength),
+    tolerance: decimalFromNumber(input.tolerance),
+    planned: input.planned.map(decimalFromNumber),
+    measured: input.measured.map(decimalFromNumber),
+  };
+  return alignExact(exact, input);
+}
+
+/**
  * 录入态分析入口：先校验，任一问题都停留在待修正态（不产生诊断）；
- * 全部合法后做动态规划对齐。
+ * 全部合法后做动态规划对齐。从原文到 DP 全程保留十进制精度。
  */
 export function analyzeStaples(raw: {
   spineLength: string;
@@ -521,9 +883,9 @@ export function analyzeStaples(raw: {
   planned: string;
   measured: string;
 }): StapleResult {
-  const validation = validateStapleInput(raw);
+  const validation = validateExact(raw);
   if (!validation.ok) {
     return { kind: 'invalid', issues: validation.issues };
   }
-  return alignStaples(validation.input);
+  return alignExact(validation.exact, validation.input);
 }
