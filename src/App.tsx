@@ -6,6 +6,7 @@ import {
 } from './lib/imposition';
 import { SheetCard } from './components/SheetCard';
 import { PaperDrill } from './components/PaperDrill';
+import { StapleInspection } from './components/StapleInspection';
 
 export function App() {
   const [raw, setRaw] = useState('');
@@ -95,6 +96,8 @@ export function App() {
       )}
 
       <PaperDrill />
+
+      <StapleInspection />
 
       <footer className="page-footer">
         <p>

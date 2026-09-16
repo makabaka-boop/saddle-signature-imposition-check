@@ -530,3 +530,384 @@ body {
   margin-bottom: 4px;
   break-inside: avoid;
 }
+
+/* ---- 钉位检测区 ---- */
+
+.staple {
+  margin-top: 28px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 18px 20px 20px;
+}
+
+.staple__header h2 {
+  margin: 0 0 6px;
+  font-size: 17px;
+}
+
+.staple__intro {
+  margin: 0 0 16px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.staple__intro strong {
+  color: var(--accent);
+}
+
+.staple-form {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px 20px;
+}
+
+.staple-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+
+.staple-field:nth-child(3),
+.staple-field:nth-child(4) {
+  grid-column: 1 / -1;
+}
+
+.staple-field label {
+  font-weight: 700;
+  font-size: 14px;
+}
+
+.staple-input {
+  width: 100%;
+  padding: 8px 12px;
+  font-size: 15px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fff;
+  font-family: inherit;
+}
+
+textarea.staple-input {
+  resize: vertical;
+  min-height: 46px;
+  line-height: 1.5;
+}
+
+.staple-input:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.staple-input--invalid {
+  border-color: var(--error-line);
+  background: var(--error-bg);
+}
+
+.staple-field__hint {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.staple-tokens {
+  list-style: none;
+  margin: 2px 0 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.staple-token {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px 2px 4px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #faf7f0;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.staple-token__index {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 17px;
+  height: 17px;
+  border-radius: 50%;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 700;
+  font-size: 11px;
+}
+
+.staple-token--bad {
+  border-color: var(--error-line);
+  background: var(--error-bg);
+}
+
+.staple-token--bad .staple-token__index {
+  background: var(--error-ink);
+  color: #fff;
+}
+
+.staple-field-errors {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--error-ink);
+  font-size: 12px;
+}
+
+.staple-controls {
+  display: flex;
+  gap: 12px;
+  margin: 16px 0 0;
+  flex-wrap: wrap;
+}
+
+.staple-button {
+  padding: 9px 22px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 15px;
+  border: 1px solid var(--line);
+  background: #f1ede4;
+  color: var(--ink);
+}
+
+.staple-button--analyze {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+  font-weight: 700;
+}
+
+.staple-button--analyze:hover {
+  filter: brightness(1.08);
+}
+
+.staple-button--clear:hover {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+
+.staple .notice {
+  margin-top: 14px;
+}
+
+.staple-invalid-list {
+  margin: 8px 0 0;
+  padding-left: 20px;
+}
+
+.staple-result {
+  margin-top: 16px;
+}
+
+.staple-verdict {
+  margin: 0 0 12px;
+  padding: 12px 16px;
+  border-radius: 8px;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.staple-verdict--pass {
+  background: #e7f4ec;
+  border: 1px solid #a9d4b8;
+  color: #1e6b3a;
+}
+
+.staple-verdict--fail {
+  background: var(--error-bg);
+  border: 1px solid var(--error-line);
+  color: var(--error-ink);
+}
+
+.staple-summary {
+  display: flex;
+  gap: 20px;
+  flex-wrap: wrap;
+  align-items: baseline;
+  padding: 10px 16px;
+  background: var(--accent-soft);
+  border-left: 4px solid var(--accent);
+  border-radius: 6px;
+  font-size: 14px;
+}
+
+.staple-summary strong {
+  font-size: 18px;
+}
+
+.staple-diagram {
+  display: block;
+  width: 100%;
+  max-width: 460px;
+  height: auto;
+  margin: 14px auto 4px;
+}
+
+.staple-diagram__spine {
+  stroke: #c9c0ac;
+  stroke-width: 1.5;
+  stroke-dasharray: 4 4;
+}
+
+.staple-diagram__scale,
+.staple-diagram__colhint,
+.staple-diagram__label {
+  font-size: 10px;
+  fill: var(--muted);
+}
+
+.staple-diagram__label {
+  fill: var(--ink);
+  font-size: 11px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.staple-diagram__line {
+  stroke-width: 1.8;
+}
+
+.staple-diagram__line--ok {
+  stroke: #2e7d5b;
+}
+
+.staple-diagram__line--over {
+  stroke: #b03a2e;
+  stroke-dasharray: 5 3;
+}
+
+.staple-diagram__dot {
+  stroke: #fff;
+  stroke-width: 1.5;
+}
+
+.staple-diagram__dot--planned {
+  fill: #2471a3;
+}
+
+.staple-diagram__dot--measured {
+  fill: #1e8449;
+}
+
+.staple-diagram__dot--missing {
+  fill: #b03a2e;
+}
+
+.staple-diagram__dot--extra {
+  fill: #ca6f1e;
+}
+
+.staple-legend {
+  display: flex;
+  justify-content: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  color: var(--muted);
+  margin-bottom: 10px;
+}
+
+.staple-legend__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.staple-swatch {
+  display: inline-block;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+}
+
+.staple-swatch--planned {
+  background: #2471a3;
+}
+
+.staple-swatch--measured {
+  background: #1e8449;
+}
+
+.staple-swatch--missing {
+  background: #b03a2e;
+}
+
+.staple-swatch--extra {
+  background: #ca6f1e;
+}
+
+.staple-tables {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr;
+  gap: 18px;
+  margin-top: 8px;
+}
+
+.staple-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.staple-table th,
+.staple-table td {
+  border: 1px solid var(--line);
+  padding: 6px 9px;
+  text-align: left;
+  font-variant-numeric: tabular-nums;
+}
+
+.staple-table th {
+  background: #f1ede4;
+}
+
+.staple-table__row--over td {
+  background: var(--error-bg);
+  color: var(--error-ink);
+  font-weight: 700;
+}
+
+.staple-side-lists h3 {
+  margin: 0 0 6px;
+  font-size: 14px;
+}
+
+.staple-item-list {
+  margin: 0 0 10px;
+  padding-left: 18px;
+  font-size: 13px;
+}
+
+.staple-item-list li {
+  margin-bottom: 4px;
+  font-variant-numeric: tabular-nums;
+}
+
+.staple-empty-note {
+  margin: 0 0 10px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+@media (max-width: 720px) {
+  .staple-form {
+    grid-template-columns: 1fr;
+  }
+
+  .staple-field:nth-child(3),
+  .staple-field:nth-child(4) {
+    grid-column: auto;
+  }
+
+  .staple-tables {
+    grid-template-columns: 1fr;
+  }
+}
